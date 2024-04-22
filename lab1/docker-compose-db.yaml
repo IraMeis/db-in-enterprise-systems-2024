@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  postgres:
+    container_name: postgres_container
+    image: postgres:16.0-bookworm
+    environment:
+      POSTGRES_DB: "db-in-es"
+      POSTGRES_USER: "db-in-es"
+      POSTGRES_PASSWORD: "db-in-es"
+      PGDATA: "/var/lib/postgresql/data/pgdata"
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d
+      - ./db-in-es-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U db-in-es -d db-in-es"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 4G
+    networks:
+      - postgres
+
+  pgadmin:
+    container_name: pgadmin_container
+    image: dpage/pgadmin4:7.2
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "db-in-es@db-in-es.com"
+      PGADMIN_DEFAULT_PASSWORD: "db-in-es"
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - ./pgadmin-data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - postgres
+
+volumes:
+  db-in-es-data:
+  pgadmin-data:
+
+networks:
+  postgres:
+    driver: bridge
