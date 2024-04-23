@@ -116,23 +116,98 @@ WHERE unique_id IN (
 	SELECT reservoir_ref FROM (
 		SELECT reservoir_ref, count(*) AS num_rows
 		FROM measurement
-		GROUP BY reservoir_ref)
+		GROUP BY reservoir_ref
+		)
 	WHERE num_rows = (
 		SELECT MAX(num_rows) FROM (
 		    SELECT reservoir_ref, count(*) AS num_rows
 		    FROM measurement
-		    GROUP BY reservoir_ref)));
+		    GROUP BY reservoir_ref
+		    )
+    )
+);
 ```
 
-2 Получить токены юзеров, у которых измерений меньше среднего:
+2 Получить токены юзеров, у которых измерений больше среднего:
 ```
-SELECT content FROM token
-WHERE sys_user_ref IN (
-    SELECT unique_id FROM sys_user
-    GROUP BY unique_id
-    HAVING COUNT(*) < (
-        SELECT AVG(num_rows) 
-        FROM (SELECT COUNT(*) AS num_rows FROM sys_user GROUP BY unique_id)));
+SELECT t.content AS token_content
+FROM token t
+JOIN (
+  SELECT sys_user_ref
+  FROM (
+    SELECT sys_user_ref, COUNT(*) AS count
+    FROM measurement
+    GROUP BY sys_user_ref
+  ) AS user_measurement_count
+  WHERE count > (
+    SELECT AVG(count)
+    FROM (
+      SELECT sys_user_ref, COUNT(*) AS count
+      FROM measurement
+      GROUP BY sys_user_ref
+    ) AS user_measurement_count
+  )
+) hu ON t.sys_user_ref = hu.sys_user_ref;
+```
+
+3 Получить группы у которых пользователей больше среднего 
+и измерений меньше среднего:
+```
+SELECT DISTINCT g.unique_id
+FROM sys_group g
+
+JOIN (
+  SELECT sys_group_ref, COUNT(*) AS user_count
+  FROM link_sys_user_sys_group
+  GROUP BY sys_group_ref
+) u ON g.unique_id = u.sys_group_ref
+
+JOIN (
+  SELECT sys_group_ref, COUNT(*) AS measurement_count
+  FROM measurement
+  GROUP BY sys_group_ref
+) m ON g.unique_id = m.sys_group_ref
+
+WHERE
+  u.user_count > (
+    SELECT AVG(user_count)
+    FROM (
+      SELECT sys_group_ref, COUNT(*) AS user_count
+      FROM link_sys_user_sys_group
+      GROUP BY sys_group_ref
+    ) avg_uc
+  )
+
+  AND m.measurement_count < (
+    SELECT AVG(measurement_count)
+    FROM (
+      SELECT sys_group_ref, COUNT(*) AS measurement_count
+      FROM measurement
+      GROUP BY sys_group_ref
+    ) avg_mc
+  );
+```
+
+4 Получить водоемы, по которым делала замеры группа
+с самым большим количеством измерений:
+
+```
+SELECT DISTINCT r.unique_id, r.name
+FROM reservoir r
+JOIN measurement m ON r.unique_id = m.reservoir_ref
+JOIN (
+    SELECT sys_group_ref, COUNT(*) AS measurement_count
+    FROM measurement
+    GROUP BY sys_group_ref
+) mcg ON m.sys_group_ref = mcg.sys_group_ref
+WHERE mcg.measurement_count = (
+    SELECT MAX(grouped.measurement_count)
+    FROM (
+        SELECT sys_group_ref, COUNT(*) AS measurement_count
+        FROM measurement
+        GROUP BY sys_group_ref
+    ) grouped
+);
 ```
 
 ### Генерация тестовых данных  
