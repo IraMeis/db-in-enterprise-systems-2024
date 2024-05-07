@@ -21,10 +21,20 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=2048MB"
+      - "-c"
+      - "work_mem=128MB"
+      - "-c"
+      - "random_page_cost=0.1"
+      - "-c"
+      - "seq_page_cost=0.1"
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: '4'
           memory: 4G
     networks:
       - postgres
