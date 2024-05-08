@@ -1,3 +1,4 @@
 .idea
 **/db-in-es-data
 **/pgadmin-data
+.ipynb_checkpoints

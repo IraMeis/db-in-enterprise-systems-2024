@@ -77,7 +77,7 @@ organic carbon - органический углерод,
 trihalomethanes - тригалометаны,  
 turbidity - мутность.  
 
-[Скрипты создания таблиц]()  
+[Скрипты создания таблиц](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/sql/00-init.sql)  
 
 Бд доступна в докере:
 `docker-compose -f docker-compose-db.yaml up`  
@@ -88,7 +88,7 @@ turbidity - мутность.
 primary key дефолтно посоздавал индексов по unique_id:  
 `select * from pg_indexes where tablename not like 'pg%';`
 
-[photo]()  
+[photo](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/img0.png)  
 
 Дополнительно созданы индексы по столбцам, которые 
 предположительно будут использованы для поиска. 
@@ -102,9 +102,9 @@ ON public.reservoir USING btree (name) WHERE is_deleted = false;
 
 CREATE INDEX IF NOT EXISTS measurement_date_idx
 ON public.measurement USING btree (date);
-```
+```  
 
-[Скрипты создания индексов]()  
+[Скрипты создания индексов](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/sql/01-idx.sql)  
 
 ### Типовые запросы  
 
@@ -211,7 +211,7 @@ WHERE mcg.measurement_count = (
 ```
 
 ### Генерация тестовых данных  
-[Скрипт]()  
+[Скрипт](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/fill_data.ipynb)  
 
 Генерация питоном (библиотеки faker и random), для 
 записи использован psycopg2.  
@@ -242,7 +242,7 @@ for row in some_table:
     (row['col1'],row['col2']))
 ```
 По итогу на диске -2гб,  
-[photo]()  
+[photo](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/img1.png)  
 
 в таблицах записей:  
 sys_user, token - 1 000 000  
@@ -253,7 +253,16 @@ link_sys_user_sys_group - 1 001 014
 
 ### Время выполнения запросов & Оптимизации  
 
-Execution time для представленных запросов,
+Характеристики среды:  
+16ГБ RAM, intel 1.80GHz x 4 (8 - hyper-threading), ssd, os fedora39.  
+Стейт до тестов:  
+la 2-3 (браузеры, идеешки, питон и прочее -
+гоняю на основной рабоче машине), 
+память забита наполовину, не сваптися.  
+Подопытная бд запускается в контейнере (докер) с
+лимитами на память и проц, образ postgres:16.0-bookworm. 
+
+Execution time для представленных запросов
 получен через EXPLAIN ANALYSE $request.
 
 | 1, мс | 2, мс  | 3, мс  | 4, мс  |
@@ -324,6 +333,125 @@ Execution time для представленных запросов,
 
 Интересное просиходит при установке work_mem в 64/128 мб -
 время выполнения второго запроса сокращается на 1 сек,
-а первый начинает наоборот проседать (на 0.3 сек). Изменения
+а первый начинает наоборот проседать (на 0.3-0.5 сек). Изменения
 shared_buffers и random_page_cost / seq_page_cost повлияли 
 относительно мало.
+
+Далее используется конфигурация 6.  
+
+Оптимизации ~~которые надо было делать вначале~~ запросов  
+
+Cделать меньше селектов, переписав все с использованием
+cte:
+
+1
+```
+WITH max_measurement_count AS (
+    SELECT reservoir_ref, COUNT(*) AS measurement_count
+    FROM measurement
+    GROUP BY reservoir_ref
+)
+SELECT reservoir.name
+FROM max_measurement_count
+JOIN reservoir ON reservoir.unique_id = max_measurement_count.reservoir_ref
+WHERE max_measurement_count.measurement_count = (
+    SELECT MAX(measurement_count)
+    FROM max_measurement_count
+);
+```
+
+2
+```
+WITH user_measurement_counts AS (
+    SELECT sys_user_ref, COUNT(*) AS measurement_count
+    FROM measurement
+    GROUP BY sys_user_ref
+),
+average_measurement_count AS (
+    SELECT AVG(measurement_count) AS average_count
+    FROM user_measurement_counts
+),
+users_above_average AS (
+    SELECT sys_user_ref
+    FROM user_measurement_counts
+    WHERE measurement_count > (SELECT average_count FROM average_measurement_count)
+)
+SELECT t.content AS token_content
+FROM token t
+JOIN users_above_average ua
+  ON t.sys_user_ref = ua.sys_user_ref;
+```
+
+3  
+```
+WITH 
+group_user_count AS (
+    SELECT sys_group_ref, COUNT(*) AS user_count
+    FROM link_sys_user_sys_group
+    GROUP BY sys_group_ref
+),
+group_measurement_count AS (
+    SELECT sys_group_ref, COUNT(*) AS measurement_count
+    FROM measurement
+    GROUP BY sys_group_ref
+),
+avg_user_count AS (
+    SELECT AVG(user_count) AS average_user_count
+    FROM group_user_count
+),
+avg_measurement_count AS (
+    SELECT AVG(measurement_count) AS average_measurement_count
+    FROM group_measurement_count
+)
+SELECT DISTINCT g.unique_id
+FROM sys_group g
+JOIN group_user_count guc ON g.unique_id = guc.sys_group_ref
+JOIN group_measurement_count gmc ON g.unique_id = gmc.sys_group_ref
+WHERE 
+    guc.user_count > (SELECT average_user_count FROM avg_user_count)
+    AND gmc.measurement_count < (SELECT average_measurement_count FROM avg_measurement_count);
+
+```
+
+4  
+```
+WITH max_measurement_group AS (
+    SELECT sys_group_ref, COUNT(*) AS measurement_count
+    FROM measurement
+    GROUP BY sys_group_ref
+),
+max_measurement_count AS (
+    SELECT MAX(measurement_count) AS max_count
+    FROM max_measurement_group
+),
+groups_with_max_measurement AS (
+    SELECT sys_group_ref
+    FROM max_measurement_group
+    WHERE measurement_count = (SELECT max_count FROM max_measurement_count)
+)
+SELECT DISTINCT r.unique_id, r.name
+FROM reservoir r
+JOIN measurement m ON r.unique_id = m.reservoir_ref
+JOIN groups_with_max_measurement gmm ON m.sys_group_ref = gmm.sys_group_ref;
+
+```
+
+| N               | 1, мс    | 2, мс   | 3, мс  | 4, мс     | 
+|-----------------|----------|---------|--------|-----------|
+| init            | 1510.583 | 3731.507 | 727.061 | 1084.374  |
+| + server tuning | 1881.103 | 2563.740 | 673.991 | 955.443   | 
+| + sql rewrite   | 1076.090 | 1848.065 | 351.986 | 670.096   | 
+
+
+Результаты в целом радуют - все запросы получили ускорение 1.5-2
+(хотя 2 сек sql как-то не впечатляет). ~~иногда нужно просто переписать 
+плохой запрос и двигаться дальше~~  
+Если сравнить эти оптимизации с первой табличкой, 
+в которой просто добавлялись ядра,
+и запросы ускорялись в 5 раз, то кажется что докидывание 
+мощностей железа - классная идея, способная
+решить все проблемы. Интереса ради я 
+позапускала запросы на 8 ядрах и... ничего не изменилось. Потолок
+"железных" оптимизаций достигнут, по крайней мере в 
+услових лабораторной без 100500 одновременных коннекшенов и 
+активного использования диска. 
