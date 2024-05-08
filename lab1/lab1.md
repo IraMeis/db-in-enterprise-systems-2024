@@ -88,7 +88,7 @@ turbidity - мутность.
 primary key дефолтно посоздавал индексов по unique_id:  
 `select * from pg_indexes where tablename not like 'pg%';`
 
-[photo](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/img0.png)  
+![photo](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/photo/img0.png)  
 
 Дополнительно созданы индексы по столбцам, которые 
 предположительно будут использованы для поиска. 
@@ -242,7 +242,7 @@ for row in some_table:
     (row['col1'],row['col2']))
 ```
 По итогу на диске -2гб,  
-[photo](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/img1.png)  
+![photo](https://github.com/IraMeis/db-in-enterprise-systems-2024/blob/main/lab1/photo/img1.png)  
 
 в таблицах записей:  
 sys_user, token - 1 000 000  
